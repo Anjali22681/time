@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+/**
+ * @title TimeLockVault
+ * @dev A smart contract that allows users to deposit funds with time-based locks
+ * @author Time Lock Vault Team
+ */
+contract TimeLockVault {
+    
+    // Struct to store vault information for each user
+    struct Vault {
+        uint256 amount;
+        uint256 unlockTime;
+        bool isActive;
+    }
+    
+    // Mapping from user address to their vault
+    mapping(address => Vault) public vaults;
+    
+    // Events
+    event Deposited(address indexed user, uint256 amount, uint256 unlockTime);
+    event Withdrawn(address indexed user, uint256 amount);
+    event VaultExtended(address indexed user, uint256 newUnlockTime);
+    
+
+    
+    // Constants
+    uint256 public constant MIN_LOCK_DURATION = 1 minutes;
+    uint256 public constant MAX_LOCK_DURATION = 365 days;
+    
+    /**
+     * @dev Deposit Ether into a time-locked vault
+     * @param lockDuration Duration in seconds for which funds will be locked
+     */
+    function deposit(uint256 lockDuration) external payable {
+        require(msg.value > 0, "Insufficient amount");
+        require(lockDuration >= MIN_LOCK_DURATION && lockDuration <= MAX_LOCK_DURATION, "Invalid lock duration");
+        require(!vaults[msg.sender].isActive, "Vault already exists");
+        
+        uint256 unlockTime = block.timestamp + lockDuration;
+        
+        vaults[msg.sender] = Vault({
+            amount: msg.value,
+            unlockTime: unlockTime,
+            isActive: true
+        });
+        
+        emit Deposited(msg.sender, msg.value, unlockTime);
+    }
+    
+    /**
+     * @dev Withdraw funds from the vault after the lock period expires
+     */
+    function withdraw() external {
+        Vault storage userVault = vaults[msg.sender];
+        
+        require(userVault.isActive, "No active vault");
+        require(block.timestamp >= userVault.unlockTime, "Vault still locked");
+        
+        uint256 amount = userVault.amount;
+        
+        // Reset the vault
+        userVault.amount = 0;
+        userVault.unlockTime = 0;
+        userVault.isActive = false;
+        
+        // Transfer funds back to user
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        require(success, "Withdrawal failed");
+        
+        emit Withdrawn(msg.sender, amount);
+    }
+    
+    /**
+     * @dev Extend the lock duration of an existing vault
+     * @param additionalDuration Additional time in seconds to extend the lock
+     */
+    function extendLockTime(uint256 additionalDuration) external {
+        Vault storage userVault = vaults[msg.sender];
+        
+        require(userVault.isActive, "No active vault");
+        require(additionalDuration > 0, "Invalid lock duration");
+        
+        uint256 newUnlockTime = userVault.unlockTime + additionalDuration;
+        
+        // Ensure total lock time doesn't exceed maximum
+        require(newUnlockTime <= block.timestamp + MAX_LOCK_DURATION, "Invalid lock duration");
+        
+        userVault.unlockTime = newUnlockTime;
+        
+        emit VaultExtended(msg.sender, newUnlockTime);
+    }
+    
+    /**
+     * @dev Get vault information for a specific user
+     * @param user Address of the user
+     * @return amount Amount locked in the vault
+     * @return unlockTime Timestamp when funds can be withdrawn
+     * @return isActive Whether the vault is currently active
+     * @return timeRemaining Seconds remaining until unlock (0 if already unlocked)
+     */
+    function getVaultInfo(address user) 
+        external 
+        view 
+        returns (
+            uint256 amount,
+            uint256 unlockTime,
+            bool isActive,
+            uint256 timeRemaining
+        ) 
+    {
+        Vault memory userVault = vaults[user];
+        amount = userVault.amount;
+        unlockTime = userVault.unlockTime;
+        isActive = userVault.isActive;
+        
+        if (isActive && block.timestamp < unlockTime) {
+            timeRemaining = unlockTime - block.timestamp;
+        } else {
+            timeRemaining = 0;
+        }
+    }
+    
+    /**
+     * @dev Check if a user can withdraw their funds
+     * @param user Address of the user
+     * @return canWithdraw True if withdrawal is possible
+     */
+    function canWithdraw(address user) external view returns (bool canWithdraw) {
+        Vault memory userVault = vaults[user];
+        canWithdraw = userVault.isActive && block.timestamp >= userVault.unlockTime;
+    }
+    
+    /**
+     * @dev Get the total contract balance
+     * @return balance Total Ether held in the contract
+     */
+    function getContractBalance() external view returns (uint256 balance) {
+        balance = address(this).balance;
+    }
+}
+contractb address:0xF877E6B2fA22596412F131f41AbC7ba567D1d19F
